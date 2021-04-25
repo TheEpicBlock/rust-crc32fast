@@ -3,7 +3,7 @@
 //! ```rust
 //! use crc32fast::Hasher;
 //!
-//! let mut hasher = Hasher::new();
+//! let mut hasher = Hasher::new_default();
 //! hasher.update(b"foo bar baz");
 //! let checksum = hasher.finalize();
 //! ```
@@ -48,14 +48,15 @@ pub struct Hasher {
 }
 
 const DEFAULT_INIT_STATE: u32 = 0;
+const DEFAULT_POLYNOMIAL: u64 = 0x04C11DB7;
 
 impl Hasher {
     /// Create a new `Hasher`.
     ///
     /// This will perform a CPU feature detection at runtime to select the most
     /// optimal implementation for the current processor architecture.
-    pub fn new() -> Self {
-        Self::new_with_initial(DEFAULT_INIT_STATE)
+    pub fn new(init: u32, polynomial: u64) -> Self {
+        Self::internal_new_specialized(init, polynomial).unwrap_or_else(|| Self::internal_new_baseline(init, polynomial))
     }
 
     /// Create a new `Hasher` with an initial CRC32 state.
@@ -63,12 +64,20 @@ impl Hasher {
     /// This works just like `Hasher::new`, except that it allows for an initial
     /// CRC32 state to be passed in.
     pub fn new_with_initial(init: u32) -> Self {
-        Self::internal_new_specialized(init).unwrap_or_else(|| Self::internal_new_baseline(init))
+        Self::new(init, DEFAULT_POLYNOMIAL)
+    }
+
+    pub fn new_with_polynomial(polynomial: u64) -> Self {
+        Self::new(DEFAULT_INIT_STATE, polynomial)
+    }
+
+    pub fn new_default() -> Self {
+        Self::new(DEFAULT_INIT_STATE, DEFAULT_POLYNOMIAL)
     }
 
     #[doc(hidden)]
     // Internal-only API. Don't use.
-    pub fn internal_new_baseline(init: u32) -> Self {
+    pub fn internal_new_baseline(init: u32, polynomial: u64) -> Self {
         Hasher {
             amount: 0,
             state: State::Baseline(baseline::State::new(init)),
@@ -77,9 +86,9 @@ impl Hasher {
 
     #[doc(hidden)]
     // Internal-only API. Don't use.
-    pub fn internal_new_specialized(init: u32) -> Option<Self> {
+    pub fn internal_new_specialized(init: u32, polynomial: u64) -> Option<Self> {
         {
-            if let Some(state) = specialized::State::new(init, 0x04C11DB7) {
+            if let Some(state) = specialized::State::new(init, polynomial) {
                 return Some(Hasher {
                     amount: 0,
                     state: State::Specialized(state),
@@ -134,7 +143,7 @@ impl fmt::Debug for Hasher {
 
 impl Default for Hasher {
     fn default() -> Self {
-        Self::new()
+        Self::new_default()
     }
 }
 
@@ -155,12 +164,12 @@ mod test {
 
     quickcheck! {
         fn combine(bytes_1: Vec<u8>, bytes_2: Vec<u8>) -> bool {
-            let mut hash_a = Hasher::new();
+            let mut hash_a = Hasher::new_default();
             hash_a.update(&bytes_1);
             hash_a.update(&bytes_2);
-            let mut hash_b = Hasher::new();
+            let mut hash_b = Hasher::new_default();
             hash_b.update(&bytes_2);
-            let mut hash_c = Hasher::new();
+            let mut hash_c = Hasher::new_default();
             hash_c.update(&bytes_1);
             hash_c.combine(&hash_b);
 
