@@ -125,12 +125,12 @@ impl Hasher {
     }
 
     /// Combine the hash state with the hash state for the subsequent block of bytes.
-    pub fn combine(&mut self, other: &Self) {
+    pub fn combine(&mut self, other: &Self, polynomial: u32) {
         self.amount += other.amount;
         let other_crc = other.clone().finalize();
         match self.state {
-            State::Baseline(ref mut state) => state.combine(other_crc, other.amount),
-            State::Specialized(ref mut state) => state.combine(other_crc, other.amount),
+            State::Baseline(ref mut state) => state.combine(other_crc, other.amount, polynomial),
+            State::Specialized(ref mut state) => state.combine(other_crc, other.amount, polynomial),
         }
     }
 }
@@ -161,6 +161,7 @@ impl hash::Hasher for Hasher {
 mod test {
     use quickcheck::quickcheck;
     use super::Hasher;
+    use crate::DEFAULT_POLYNOMIAL;
 
     quickcheck! {
         fn combine(bytes_1: Vec<u8>, bytes_2: Vec<u8>) -> bool {
@@ -171,7 +172,7 @@ mod test {
             hash_b.update(&bytes_2);
             let mut hash_c = Hasher::new_default();
             hash_c.update(&bytes_1);
-            hash_c.combine(&hash_b);
+            hash_c.combine(&hash_b, DEFAULT_POLYNOMIAL);
 
             hash_a.finalize() == hash_c.finalize()
         }

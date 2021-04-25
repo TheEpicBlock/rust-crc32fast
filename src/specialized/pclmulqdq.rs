@@ -57,8 +57,8 @@ impl State {
         self.state = 0;
     }
 
-    pub fn combine(&mut self, other: u32, amount: u64) {
-        self.state = crate::combine::combine(self.state, other, amount);
+    pub fn combine(&mut self, other: u32, amount: u64, polynomial: u32) {
+        self.state = crate::combine::combine(self.state, other, amount, polynomial);
     }
 }
 

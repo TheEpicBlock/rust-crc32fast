@@ -23,8 +23,8 @@ impl State {
         self.state = 0;
     }
 
-    pub fn combine(&mut self, other: u32, amount: u64) {
-        self.state = crate::combine::combine(self.state, other, amount);
+    pub fn combine(&mut self, other: u32, amount: u64, polynomial: u32) {
+        self.state = crate::combine::combine(self.state, other, amount, polynomial);
     }
 }
 
@@ -32,30 +32,29 @@ pub(crate) fn update_slow(prev: u32, buf: &[u8], table: &[u32; 256]) -> u32 {
     let mut crc = !prev;
 
     for &byte in buf.iter() {
-        crc = (crc << 8) ^ table[((crc >> 24) as u8 ^ byte) as usize];
+        crc = (crc >> 8) ^ table[(crc as u8 ^ byte) as usize];
     }
 
     !crc
 }
 
 pub(crate) fn create_table(polynomial: u32) -> [u32; 256] {
+    let poly = polynomial.reverse_bits();
     let mut table = [0u32; 256];
 
     for i in 0..255 as usize {
         let mut crc = i as u32;
 
-        for j in 0..8 {
-            if crc & 0x80 == 0x80 {
-                crc = (crc << 1) ^ polynomial;
+        for _ in 0..8 {
+            if crc & 1 == 1 {
+                crc = (crc >> 1) ^ poly;
             } else {
-                crc <<= 1;
+                crc >>= 1;
             }
         }
 
         table[i] = crc;
     }
-
-    println!("{:#8x}",table[1]);
 
     return table;
 }
@@ -69,6 +68,7 @@ mod test {
     fn baseline() {
         let table = create_table(0x04C11DB7);
         assert_eq!(super::update_slow(0, b"", &table), 0);
+        assert_eq!(super::update_slow(0, b"hello world", &table), 0xd4a1185);
 
         // test vectors from the iPXE project (input and output are bitwise negated)
         assert_eq!(super::update_slow(!0x12345678, b"", &table), !0x12345678);
