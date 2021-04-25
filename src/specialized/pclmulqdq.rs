@@ -7,6 +7,7 @@ use core::arch::x86_64 as arch;
 pub struct State {
     state: u32,
     constants: Constants,
+    table: [u32; 256],
 }
 
 impl State {
@@ -32,7 +33,11 @@ impl State {
         {
             // SAFETY: The conditions above ensure that all
             //         required instructions are supported by the CPU.
-            Some(Self { state, constants: Constants::from_polynomial(polynomial) })
+            Some(Self {
+                state,
+                constants: Constants::from_polynomial(polynomial),
+                table: crate::baseline::create_table(polynomial as u32),
+            })
         } else {
             None
         }
@@ -41,7 +46,7 @@ impl State {
     pub fn update(&mut self, buf: &[u8]) {
         // SAFETY: The `State::new` constructor ensures that all
         //         required instructions are supported by the CPU.
-        self.state = unsafe { calculate(self.state, buf) }
+        self.state = unsafe { calculate(self.state, buf, &self.table) }
     }
 
     pub fn finalize(self) -> u32 {
@@ -150,12 +155,12 @@ unsafe fn debug(_s: &str, a: arch::__m128i) -> arch::__m128i {
 }
 
 #[target_feature(enable = "pclmulqdq", enable = "sse2", enable = "sse4.1")]
-pub unsafe fn calculate(crc: u32, mut data: &[u8]) -> u32 {
+pub unsafe fn calculate(crc: u32, mut data: &[u8], table: &[u32; 256]) -> u32 {
     // In theory we can accelerate smaller chunks too, but for now just rely on
     // the fallback implementation as it's too much hassle and doesn't seem too
     // beneficial.
     if data.len() < 128 {
-        return crate::baseline::update_fast_16(crc, data);
+        return crate::baseline::update_slow(crc, data, table);
     }
 
     // Step 1: fold by 4 loop
@@ -244,7 +249,7 @@ pub unsafe fn calculate(crc: u32, mut data: &[u8]) -> u32 {
     let c = arch::_mm_extract_epi32(arch::_mm_xor_si128(x, t2), 1) as u32;
 
     if !data.is_empty() {
-        crate::baseline::update_fast_16(!c, data)
+        crate::baseline::update_slow(!c, data, table)
     } else {
         !c
     }
@@ -270,7 +275,7 @@ mod test {
 
     quickcheck! {
         fn check_against_baseline(init: u32, chunks: Vec<(Vec<u8>, usize)>) -> bool {
-            let mut baseline = super::super::super::baseline::State::new(init);
+            let mut baseline = super::super::super::baseline::State::new(init, 0x04C11DB7);
             let mut pclmulqdq = super::State::new(init, 0x04C11DB7).expect("not supported");
             for (chunk, mut offset) in chunks {
                 // simulate random alignments by offsetting the slice by up to 15 bytes

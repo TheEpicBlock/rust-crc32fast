@@ -48,14 +48,14 @@ pub struct Hasher {
 }
 
 const DEFAULT_INIT_STATE: u32 = 0;
-const DEFAULT_POLYNOMIAL: u64 = 0x04C11DB7;
+const DEFAULT_POLYNOMIAL: u32 = 0x04C11DB7;
 
 impl Hasher {
     /// Create a new `Hasher`.
     ///
     /// This will perform a CPU feature detection at runtime to select the most
     /// optimal implementation for the current processor architecture.
-    pub fn new(init: u32, polynomial: u64) -> Self {
+    pub fn new(init: u32, polynomial: u32) -> Self {
         Self::internal_new_specialized(init, polynomial).unwrap_or_else(|| Self::internal_new_baseline(init, polynomial))
     }
 
@@ -67,7 +67,7 @@ impl Hasher {
         Self::new(init, DEFAULT_POLYNOMIAL)
     }
 
-    pub fn new_with_polynomial(polynomial: u64) -> Self {
+    pub fn new_with_polynomial(polynomial: u32) -> Self {
         Self::new(DEFAULT_INIT_STATE, polynomial)
     }
 
@@ -77,18 +77,18 @@ impl Hasher {
 
     #[doc(hidden)]
     // Internal-only API. Don't use.
-    pub fn internal_new_baseline(init: u32, polynomial: u64) -> Self {
+    pub fn internal_new_baseline(init: u32, polynomial: u32) -> Self {
         Hasher {
             amount: 0,
-            state: State::Baseline(baseline::State::new(init)),
+            state: State::Baseline(baseline::State::new(init, polynomial)),
         }
     }
 
     #[doc(hidden)]
     // Internal-only API. Don't use.
-    pub fn internal_new_specialized(init: u32, polynomial: u64) -> Option<Self> {
+    pub fn internal_new_specialized(init: u32, polynomial: u32) -> Option<Self> {
         {
-            if let Some(state) = specialized::State::new(init, polynomial) {
+            if let Some(state) = specialized::State::new(init, polynomial as u64) {
                 return Some(Hasher {
                     amount: 0,
                     state: State::Specialized(state),
