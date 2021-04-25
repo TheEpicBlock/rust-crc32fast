@@ -6,6 +6,7 @@ use core::arch::x86_64 as arch;
 #[derive(Clone)]
 pub struct State {
     state: u32,
+    constants: Constants,
 }
 
 impl State {
@@ -24,14 +25,14 @@ impl State {
     }
 
     #[cfg(feature = "std")]
-    pub fn new(state: u32) -> Option<Self> {
+    pub fn new(state: u32, polynomial: u64) -> Option<Self> {
         if is_x86_feature_detected!("pclmulqdq")
             && is_x86_feature_detected!("sse2")
             && is_x86_feature_detected!("sse4.1")
         {
             // SAFETY: The conditions above ensure that all
             //         required instructions are supported by the CPU.
-            Some(Self { state })
+            Some(Self { state, constants: Constants::from_polynomial(polynomial) })
         } else {
             None
         }
@@ -54,6 +55,66 @@ impl State {
     pub fn combine(&mut self, other: u32, amount: u64) {
         self.state = crate::combine::combine(self.state, other, amount);
     }
+}
+
+#[derive(Clone)]
+struct Constants {
+    k1: u64,
+    k2: u64,
+    k3: u64,
+    k4: u64,
+    k5: u64,
+    k6: u64,
+    p_x: u64,
+    u_prime: u64,
+}
+
+impl Constants {
+    pub fn from_polynomial(polynomial: u64) -> Constants {
+        let k1 = calc_poly(4*128+64,polynomial,32).0;
+        let k2 = calc_poly(4*128,polynomial,32).0;
+        let k3 = calc_poly(128+64,polynomial,32).0;
+        let k4 = calc_poly(128,polynomial,32).0;
+        let k5 = calc_poly(96,polynomial,32).0;
+        let k6 = calc_poly(64,polynomial,32).0;
+        let p_x = calc_poly(64,polynomial,32).1;
+
+        Constants {
+            k1,
+            k2,
+            k3,
+            k4,
+            k5,
+            k6,
+            p_x,
+            u_prime: 0
+        }
+    }
+}
+
+fn calc_poly(mut n: u32, mut poly: u64, mut deg: u32) -> (u64, u64) {
+    let mut div;
+    if n < deg {
+        div = 0;
+        return (poly, div);
+    }
+    let mask = (1 << deg) - 1;
+
+    poly &= mask;
+    let mut mud = poly;
+    div = 1;
+    deg -= 1;
+    n -= 1;
+    while n > deg {
+        n -= 1;
+        let high = (mud >> deg) & 1;
+        div = (div << 1) | high;  /* quotient bits may be lost off the top */
+        mud <<= 1;
+        if high == 1 {
+            mud ^= poly;
+        }
+    }
+    return (mud & mask, div);
 }
 
 const K1: i64 = 0x154442bd4;
@@ -205,11 +266,12 @@ unsafe fn get(a: &mut &[u8]) -> arch::__m128i {
 #[cfg(test)]
 mod test {
     use quickcheck::quickcheck;
+    use crate::specialized::pclmulqdq::calc_poly;
 
     quickcheck! {
         fn check_against_baseline(init: u32, chunks: Vec<(Vec<u8>, usize)>) -> bool {
             let mut baseline = super::super::super::baseline::State::new(init);
-            let mut pclmulqdq = super::State::new(init).expect("not supported");
+            let mut pclmulqdq = super::State::new(init, 0x04C11DB7).expect("not supported");
             for (chunk, mut offset) in chunks {
                 // simulate random alignments by offsetting the slice by up to 15 bytes
                 offset &= 0xF;
@@ -223,5 +285,30 @@ mod test {
             }
             pclmulqdq.finalize() == baseline.finalize()
         }
+    }
+
+    #[test]
+    fn test_poly() {
+        let polynomial = 0x04C11DB7;
+        assert_eq!(calc_poly(4*128+64,polynomial,32).0, 0x8833794C);
+        assert_eq!(calc_poly(4*128,polynomial,32).0, 0xe6228b11);
+        assert_eq!(calc_poly(128+64,polynomial,32).0, 0xc5b9cd4c);
+        assert_eq!(calc_poly(128,polynomial,32).0, 0xe8a45605);
+        assert_eq!(calc_poly(96,polynomial,32).0, 0xf200aa66);
+        assert_eq!(calc_poly(64,polynomial,32).0, 0x490d678d);
+        assert_eq!(calc_poly(64,polynomial,32).1, 0x104d101df);
+    }
+
+    #[test]
+    #[should_panic] // This doesn't work for reflected thingies
+    fn test_poly_reflected() {
+        let polynomial = 0xDB710641;
+        assert_eq!(calc_poly(4*128+32,polynomial,32).0, 0x8833794C);
+        assert_eq!(calc_poly(4*128-32,polynomial,32).0, 0xe6228b11);
+        assert_eq!(calc_poly(128+32,polynomial,32).0, 0xc5b9cd4c);
+        assert_eq!(calc_poly(128-32,polynomial,32).0, 0xe8a45605);
+        assert_eq!(calc_poly(64,polynomial,32).0, 0xf200aa66);
+        assert_eq!(calc_poly(32,polynomial,32).0, 0x490d678d);
+        assert_eq!(calc_poly(32,polynomial,32).1, 0x104d101df);
     }
 }

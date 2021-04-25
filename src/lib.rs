@@ -79,7 +79,7 @@ impl Hasher {
     // Internal-only API. Don't use.
     pub fn internal_new_specialized(init: u32) -> Option<Self> {
         {
-            if let Some(state) = specialized::State::new(init) {
+            if let Some(state) = specialized::State::new(init, 0x04C11DB7) {
                 return Some(Hasher {
                     amount: 0,
                     state: State::Specialized(state),
